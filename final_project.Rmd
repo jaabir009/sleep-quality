@@ -1,0 +1,200 @@
+---
+title: "Sleep Quality After Night Shifts Versus Days Off"
+author: "Mohamed Askar"
+date: "November 10, 2026"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+# Show the code in the report. Hide package messages and warnings.
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Research question
+
+Is my sleep quality score different after night shifts than on days off?
+
+Null hypothesis ($H_0$): The mean sleep quality score is the same after night shifts and on days off.
+
+Alternative hypothesis ($H_1$): The mean sleep quality score differs between sleep after night shifts and sleep on days off.
+
+## Data
+
+I recorded my sleep with my Fitbit for 22 consecutive days, from October 19 to November 9, 2026. Each row of the Excel file is one day. The analysis uses four columns: the date, the day type (night shift or day off), the sleep score, and the hours slept. The file also has restless minutes and heart rate, which I recorded but did not analyze.
+
+Excel stores the sleep score as a proportion (0.62 for a score of 62), so the code multiplies it by 100 to put it on a 0-100 scale.
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(readxl)
+
+sleep_data <- read_excel("sleep_data.xlsx")
+
+# mutate() changes columns. as.Date() keeps only the calendar date.
+# round(100 * score) turns 0.62 into 62.
+sleep_data <- sleep_data %>%
+  mutate(date = as.Date(date),
+         `sleep score` = round(100 * `sleep score`))
+
+knitr::kable(sleep_data)
+```
+
+The labels follow my original log. A night-shift observation refers to the main sleep episode after that shift, even if the shift ends the next day.
+
+## Missing measurements
+
+```{r}
+# filter() with is.na() finds the days that have no sleep score.
+missing_data <- sleep_data %>% filter(is.na(`sleep score`))
+knitr::kable(missing_data)
+
+# !is.na() means "not missing". These are the days used in the analysis.
+analysis_data <- sleep_data %>% filter(!is.na(`sleep score`))
+```
+
+No score was recorded on November 2 and November 6, which were both days off. I left these two days out of the calculations instead of replacing them with zero or an estimate. That leaves 20 recorded nights.
+
+## Summary table: sleep score by day type
+
+```{r}
+# group_by() splits the data by day type.
+# summarize() calculates one row of results for each group. n() counts rows.
+summary_stats <- analysis_data %>%
+  group_by(`day type`) %>%
+  summarize(Count = n(), Mean = mean(`sleep score`),
+            Median = median(`sleep score`),
+            Minimum = min(`sleep score`), Maximum = max(`sleep score`))
+knitr::kable(summary_stats, digits = 2)
+```
+
+There are 9 scores after night shifts and 11 on days off. The mean scores are 74.67 and 83.36, respectively, and the medians are 80 and 87. Scores range from 61 to 91 after night shifts and from 55 to 96 on days off.
+
+## Graph 1: Sleep scores by day type
+
+```{r}
+# Boxplot with one box for each day type. ylim() sets the axis limits.
+ggplot(data = analysis_data, aes(x = `day type`, y = `sleep score`)) +
+  geom_boxplot() +
+  ylim(c(0, 100)) +
+  labs(x = "Day type", y = "Sleep score (0-100)",
+       title = "Sleep Scores by Day Type")
+```
+
+This graph answers my main question: do sleep scores differ between the two day types? A boxplot fits because it puts the two groups side by side and shows the median, the spread, and possible outliers. The median is higher on days off (87 versus 80), but the boxes overlap, and the lowest score of all (55) came on a day off.
+
+## Graph 2: Distribution of sleep scores
+
+```{r}
+# Histogram with bins 10 points wide: 50-60, 60-70, and so on.
+# fill = `day type` colors each bar by the day type of its scores.
+ggplot(data = analysis_data, aes(x = `sleep score`, fill = `day type`)) +
+  geom_histogram(binwidth = 10, boundary = 50, closed = "left",
+                 color = "white") +
+  labs(x = "Sleep score (0-100)", y = "Number of recorded days",
+       fill = "Day type",
+       title = "Distribution of Recorded Sleep Scores")
+```
+
+This graph answers the question: how are my sleep scores spread out, and where do the night-shift scores fall? A histogram fits because it groups one numeric variable into intervals and shows which values are common. Most of my scores are high: 13 of the 20 are 80 or above. Five scores are below 70, and four of those five came after night shifts.
+
+## Graph 3: Sleep scores over time
+
+```{r}
+# Line graph in date order. group = 1 joins the points with one line.
+# All 22 dates are used, so the line breaks at the two missing days.
+plot_time <- ggplot(data = sleep_data,
+                    aes(x = as.Date(date), y = `sleep score`, group = 1)) +
+  geom_line(color = "gray", na.rm = TRUE) +
+  geom_point(aes(color = `day type`), size = 3, na.rm = TRUE) +
+  scale_x_date(date_breaks = "4 days", date_labels = "%b %d") +
+  ylim(c(0, 100)) +
+  labs(x = "Date (2026)", y = "Sleep score (0-100)", color = "Day type",
+       title = "Sleep Scores Over Time",
+       caption = "No score was recorded on November 2 and November 6.") +
+  theme_minimal()
+print(plot_time)
+```
+
+This graph answers the question: how did my sleep score change from day to day? A line graph fits because the data are in date order, and the colored points show which nights followed a shift. My scores swing from night to night without a steady upward or downward trend. The three night shifts in a row from October 30 to November 1 scored 61 to 67, and the line breaks at the two days with no score.
+
+## Graph 4: Sleep score and sleep duration
+
+```{r scatterplot}
+# Scatterplot. Each point is one recorded day: hours slept and sleep score.
+# geom_smooth(method = "lm") adds a straight fitted line. se = FALSE hides
+# the confidence band.
+plot_scatter <- ggplot(data = analysis_data,
+                       aes(x = `sleep (hrs)`, y = `sleep score`)) +
+  geom_point(aes(color = `day type`), size = 3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black",
+              linetype = "dashed") +
+  ylim(c(0, 100)) +
+  labs(x = "Sleep duration (hours)", y = "Sleep score (0-100)",
+       color = "Day type",
+       title = "Sleep Score Compared With Sleep Duration",
+       caption = "Two night-shift days share the point (6 hours, 80).") +
+  theme_minimal()
+print(plot_scatter)
+```
+
+This graph answers the question: is a longer sleep linked to a higher sleep score? A scatterplot fits because both variables are numeric and each point is one night. The dashed line slopes upward, so longer sleeps tended to score higher. Every sleep after a night shift lasted 5 to 7 hours, while sleeps on days off ranged from 5 to 12 hours, so sleep length may explain part of the gap between the two day types. I only describe this pattern here; the statistical test below is on the sleep score.
+
+## Statistical analysis: t-test on sleep score
+
+**Question and hypotheses.** Is my mean sleep score different after night shifts than on days off? Let $\mu_1$ be the mean sleep score after night shifts and $\mu_2$ the mean on days off. The hypotheses are $H_0: \mu_1 = \mu_2$ and $H_1: \mu_1 \neq \mu_2$.
+
+**Why a t-test fits.** I am comparing the mean of one numeric variable (sleep score) between two separate groups of nights (night shift and day off). I use Welch's two-sample t-test because it does not assume that the two groups have the same spread. I compare the p-value with alpha = 0.05.
+
+```{r sleep-score-test}
+# filter() makes one data set for each group.
+night_data <- analysis_data %>% filter(`day type` == "Night shift")
+off_data <- analysis_data %>% filter(`day type` == "Day off")
+
+# Night shift is first, so the difference is night shift minus day off.
+# var.equal = FALSE asks for Welch's t-test.
+score_test <- t.test(night_data$`sleep score`, off_data$`sleep score`,
+                     alternative = "two.sided", var.equal = FALSE)
+print(score_test)
+
+# Save the two group means so the text below can report them.
+night_mean <- mean(night_data$`sleep score`)
+off_mean <- mean(off_data$`sleep score`)
+```
+
+**Results.** The mean sleep score was `r sprintf("%.2f", night_mean)` after night shifts and `r sprintf("%.2f", off_mean)` on days off, a difference of `r sprintf("%.2f", night_mean - off_mean)` points. The 95% confidence interval for the difference runs from `r sprintf("%.2f", score_test$conf.int[1])` to `r sprintf("%.2f", score_test$conf.int[2])` points. The test statistic is t = `r sprintf("%.2f", score_test$statistic)` with `r sprintf("%.2f", score_test$parameter)` degrees of freedom.
+
+The two-sided p-value is **`r sprintf("%.4f", score_test$p.value)`**.
+`r if (score_test$p.value < 0.05) "At alpha = 0.05, reject H0: this exploratory test provides evidence of a difference in mean sleep scores." else "At alpha = 0.05, fail to reject H0: this exploratory test provides insufficient evidence of a difference in mean sleep scores."`
+
+**In everyday language.** On average, my sleep scored about 9 points lower after a night shift than on a day off. With only 20 nights, a gap this size could still be due to chance, so I cannot say for sure that night shifts lower my sleep score. The result is inconclusive. It does not show that the two kinds of days are the same.
+
+```{r standardized-difference}
+# Effect size: the difference in means divided by a typical standard deviation.
+mean_difference <- mean(night_data$`sleep score`) - mean(off_data$`sleep score`)
+reference_sd <- sqrt(
+  (sd(night_data$`sleep score`)^2 + sd(off_data$`sleep score`)^2) / 2
+)
+cohens_d <- mean_difference / reference_sd
+
+effect_summary <- data.frame(
+  Difference = mean_difference,
+  Reference_SD = reference_sd,
+  Effect_size_d = cohens_d
+)
+knitr::kable(effect_summary, digits = 2, row.names = FALSE)
+```
+
+The effect size is d = `r sprintf("%.2f", cohens_d)`. The difference is about three quarters of a standard deviation, which is not small. This is why I call the result inconclusive and do not conclude that there is no difference.
+
+## Limitations
+
+- All of the data come from one person and only 20 recorded nights. A sample this small can miss a real difference, and the result does not apply to other people.
+- The nights are back to back, so one night can affect the next. The t-test assumes the observations are independent, which is why I treat it as exploratory.
+- Sleep after night shifts was also shorter. I cannot separate the effect of the day type from the effect of sleep length.
+- Two days off have no score, and one low score (55) on a day off pulls that group's mean down.
+- The sleep score is my Fitbit's own summary number, not a clinical measurement.
+
+## Conclusion
+
+My sleep scored lower after night shifts (mean `r sprintf("%.2f", night_mean)`) than on days off (mean `r sprintf("%.2f", off_mean)`), but the t-test did not find a statistically significant difference (p = `r sprintf("%.2f", score_test$p.value)`). The answer to my research question is therefore inconclusive. The graphs suggest one reason for the gap: sleep after a night shift was shorter, and shorter sleeps tended to score lower. Tracking more weeks would give a clearer answer.
